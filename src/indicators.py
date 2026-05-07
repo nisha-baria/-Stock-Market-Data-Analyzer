@@ -1,56 +1,47 @@
-import pandas as pd
 import sqlite3
-from ta.trend import SMAIndicator, MACD
-from ta.momentum import RSIIndicator
-from ta.volatility import BollingerBands
+import pandas as pd
+import os
 
-def compute_indicators(db="db/market.db", ticker="AAPL"):
-    con = sqlite3.connect(db)
-    #To read data from Database
-    df = pd.read_sql_query("SELECT date, close FROM candles_daily WHERE ticker=? ORDER BY date", con, params=[ticker])
-    
-    if df.empty:
-        print("No data found in database!")
-        return
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DB_PATH = os.path.join(BASE_DIR, 'db', 'market.db')
 
-    s = df["close"]
-    
-    # To calculate Technical Indicators
-    sma20 = SMAIndicator(s, window=20).sma_indicator()
-    sma50 = SMAIndicator(s, window=50).sma_indicator()
-    rsi14 = RSIIndicator(s, window=14).rsi()
-    macd_obj = MACD(s)
-    bb = BollingerBands(s, window=20, window_dev=2)
+def calculate_indicators():
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        # 1. Table name 'candles_daily' vapryu che
+        df = pd.read_sql("SELECT * FROM candles_daily", conn)
+        
+        if df.empty:
+            print("❌ No data found!")
+            return
 
-    # To make new DataFrame
-    out = pd.DataFrame({
-        "date": df["date"],
-        "sma20": sma20,
-        "sma50": sma50,
-        "rsi14": rsi14,
-        "macd": macd_obj.macd(),
-        "macd_signal": macd_obj.macd_signal(),
-        "bb_upper": bb.bollinger_hband(),
-        "bb_lower": bb.bollinger_lband()
-    }).dropna()
+        # 2. Column names small 'close' kari didha che
+        # Jo error aave to check karo ke column nu naam su che
+        col = 'close' if 'close' in df.columns else 'Close'
+        
+        print(f"📊 Calculating indicators for {df['ticker'].iloc[0]} using column: {col}...")
 
-    # To save indicators into database
-    cur = con.cursor()
-    cur.execute("""CREATE TABLE IF NOT EXISTS indicators_daily 
-                   (ticker TEXT, date TEXT, sma20 REAL, sma50 REAL, rsi14 REAL, 
-                    macd REAL, macd_signal REAL, bb_upper REAL, bb_lower REAL,
-                    PRIMARY KEY (ticker, date))""")
-    
-    #To insert Data
-    for _, row in out.iterrows():
-        cur.execute("""INSERT OR REPLACE INTO indicators_daily 
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (ticker, row['date'], row['sma20'], row['sma50'], row['rsi14'], 
-                     row['macd'], row['macd_signal'], row['bb_upper'], row['bb_lower']))
-    
-    con.commit()
-    con.close()
-    print(f"Indicators for {ticker} computed and saved!")
+        # SMA calculation
+        df['SMA_20'] = df[col].rolling(window=20).mean()
+        
+        # EMA calculation
+        df['EMA_20'] = df[col].ewm(span=20, adjust=False).mean()
+
+        # RSI calculation
+        delta = df[col].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        rs = gain / loss
+        df['RSI'] = 100 - (100 / (1 + rs))
+
+        # 3. Save to Processed Table
+        df.to_sql('processed_market_data', conn, if_exists='replace', index=False)
+        
+        print("✅ Success! Indicators calculated and saved.")
+        conn.close()
+
+    except Exception as e:
+        print(f"❌ Error: {e}")
 
 if __name__ == "__main__":
-    compute_indicators()
+    calculate_indicators()
