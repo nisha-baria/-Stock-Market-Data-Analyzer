@@ -11,7 +11,7 @@ Interactive Dashboard: A professional dark-themed UI to visualize price trends a
 Database Management: Stores analysis data locally using SQLite.
 
 ## 🛠️ Project Structure
-Plaintext
+```Plaintext
 Stock Market Data Analyzer/
 ├── db/               # SQLite database (market.db)
 ├── src/              # Python source scripts
